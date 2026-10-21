@@ -1,0 +1,608 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jartsther's Volleyball</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #071326;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+header {
+  padding: 18px 8px;
+  background: linear-gradient(90deg, #064eae, #ff761b);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(23px, 5vw, 38px);
+  text-shadow: 2px 3px 5px #111;
+}
+
+header p { margin: 7px 0 0; }
+
+#scoreboard {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 25px;
+  padding: 15px;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.blue { color: #54c6ff; }
+.red { color: #ff7777; }
+
+#game {
+  display: block;
+  width: min(96vw, 900px);
+  height: auto;
+  margin: auto;
+  border: 3px solid #fff;
+  border-radius: 8px;
+  background: #b9eaff;
+  touch-action: none;
+}
+
+#message {
+  min-height: 28px;
+  margin: 12px;
+  color: #ffd166;
+  font-weight: bold;
+}
+
+.controls {
+  max-width: 900px;
+  margin: 15px auto;
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+button {
+  border: 0;
+  border-radius: 9px;
+  padding: 13px 17px;
+  background: #1477ef;
+  color: white;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:active { transform: scale(.95); }
+button:hover { filter: brightness(1.15); }
+.action { background: #ed6b18; }
+#restart { background: #16844a; }
+
+.instructions {
+  max-width: 850px;
+  margin: 15px auto 25px;
+  padding: 15px;
+  line-height: 1.8;
+  color: #dceaff;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>🏐 JARTSTHER'S VOLLEYBALL</h1>
+  <p>Serve • Jump • Spike • Win!</p>
+</header>
+
+<div id="scoreboard">
+  <span class="blue">BLUE EAGLES: <span id="blueScore">0</span></span>
+  <span>VS</span>
+  <span class="red">RED TIGERS: <span id="redScore">0</span></span>
+</div>
+
+<canvas id="game" width="900" height="480"></canvas>
+<div id="message">Press START GAME to begin!</div>
+
+<div class="controls">
+  <button id="start">▶ START GAME</button>
+  <button id="left">◀ LEFT</button>
+  <button id="right">RIGHT ▶</button>
+  <button id="jump" class="action">⬆ JUMP</button>
+  <button id="hit" class="action">🏐 PASS / SERVE</button>
+  <button id="spike" class="action">💥 SPIKE</button>
+  <button id="restart">↻ RESTART</button>
+</div>
+
+<div class="instructions">
+  <strong>HOW TO PLAY</strong><br>
+  Computer: A / D = Move | W or SPACE = Jump |
+  J = Pass or Serve | K = Set | L = Spike<br>
+  Mobile: Use the buttons below the court.<br>
+  First team to 25 points wins, with a lead of at least 2 points.
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const W = canvas.width;
+const H = canvas.height;
+const floor = 405;
+const netX = W / 2;
+const netHeight = 115;
+
+const blueScoreEl = document.getElementById("blueScore");
+const redScoreEl = document.getElementById("redScore");
+const messageEl = document.getElementById("message");
+
+let blueScore = 0;
+let redScore = 0;
+let playing = false;
+let gameOver = false;
+let rally = false;
+let keys = {};
+let lastTime = 0;
+let serveDelay = 0;
+let rallyCount = 0;
+
+const player = {
+  x: 210, y: floor, vx: 0, vy: 0,
+  radius: 22, color: "#1477ef",
+  grounded: true, side: "blue"
+};
+
+const opponent = {
+  x: 690, y: floor, vx: 0, vy: 0,
+  radius: 22, color: "#ed394d",
+  grounded: true, side: "red"
+};
+
+const ball = {
+  x: 210, y: 350, vx: 0, vy: 0, r: 12
+};
+
+function setMessage(text) {
+  messageEl.textContent = text;
+}
+
+function resetBall() {
+  rally = false;
+  serveDelay = 0;
+  ball.x = player.x + 15;
+  ball.y = player.y - 65;
+  ball.vx = 0;
+  ball.vy = 0;
+  player.x = 210;
+  player.y = floor;
+  player.vx = 0;
+  player.vy = 0;
+  opponent.x = 690;
+  opponent.y = floor;
+  opponent.vx = 0;
+  opponent.vy = 0;
+}
+
+function startGame() {
+  blueScore = 0;
+  redScore = 0;
+  gameOver = false;
+  playing = true;
+  rallyCount = 0;
+  updateScore();
+  resetBall();
+  setMessage("Your serve! Press J or PASS / SERVE.");
+}
+
+function updateScore() {
+  blueScoreEl.textContent = blueScore;
+  redScoreEl.textContent = redScore;
+}
+
+function jump(p) {
+  if (!playing || gameOver || !p.grounded) return;
+  p.vy = -480;
+  p.grounded = false;
+}
+
+function serve() {
+  if (!playing || gameOver || rally) return;
+
+  rally = true;
+  rallyCount++;
+  ball.x = player.x + 25;
+  ball.y = player.y - 65;
+  ball.vx = 350;
+  ball.vy = -360;
+  setMessage("Serve! Keep the ball above the ground.");
+}
+
+function hitBall(type, p) {
+  if (!playing || gameOver) return;
+
+  if (!rally) {
+    if (p === player) serve();
+    return;
+  }
+
+  const dx = ball.x - p.x;
+  const dy = ball.y - (p.y - 45);
+  const distance = Math.hypot(dx, dy);
+
+  if (distance > 105) return;
+
+  const isBlue = p === player;
+  const direction = isBlue ? 1 : -1;
+
+  if (type === "pass") {
+    ball.vx = direction * 300;
+    ball.vy = -300;
+  } else if (type === "set") {
+    ball.vx = direction * 220;
+    ball.vy = -430;
+  } else {
+    ball.vx = direction * 520;
+    ball.vy = -250;
+  }
+
+  ball.x = p.x + direction * 32;
+  ball.y = p.y - 65;
+  setMessage(type === "spike" ? "POWER SPIKE!" : "Nice touch!");
+}
+
+function point(winner) {
+  if (!playing || gameOver) return;
+
+  if (winner === "blue") blueScore++;
+  else redScore++;
+
+  updateScore();
+
+  if (
+    (blueScore >= 25 || redScore >= 25) &&
+    Math.abs(blueScore - redScore) >= 2
+  ) {
+    gameOver = true;
+    rally = false;
+    const champ = blueScore > redScore
+      ? "BLUE EAGLES"
+      : "RED TIGERS";
+    setMessage("🏆 " + champ + " WIN JARTSTHER'S VOLLEYBALL!");
+    return;
+  }
+
+  setMessage(
+    (winner === "blue" ? "BLUE EAGLES" : "RED TIGERS") +
+    " score a point!"
+  );
+
+  rally = false;
+  serveDelay = 1;
+  resetBall();
+}
+
+// Draw the stadium and court
+function drawCourt() {
+  const sky = ctx.createLinearGradient(0, 0, 0, floor);
+  sky.addColorStop(0, "#10274b");
+  sky.addColorStop(1, "#73d5f5");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stadium lights
+  for (let x = 70; x < W; x += 190) {
+    ctx.fillStyle = "#fff3b0";
+    ctx.beginPath();
+    ctx.arc(x, 35, 9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Audience
+  for (let i = 0; i < 100; i++) {
+    const x = (i * 79) % W;
+    const y = 90 + (i * 37) % 100;
+    ctx.fillStyle = ["#ffb703", "#f72585", "#8ecae6", "#ffffff"][i % 4];
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Floor
+  ctx.fillStyle = "#d89b57";
+  ctx.fillRect(0, floor, W, H - floor);
+
+  ctx.fillStyle = "#f5c27a";
+  ctx.fillRect(0, floor, W, 8);
+
+  // Court lines
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(20, floor + 12, W - 40, 55);
+  ctx.beginPath();
+  ctx.moveTo(netX, floor + 12);
+  ctx.lineTo(netX, H);
+  ctx.stroke();
+
+  // Net posts
+  ctx.fillStyle = "#333d50";
+  ctx.fillRect(netX - 5, floor - netHeight, 10, netHeight + 5);
+
+  // Net mesh
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = "#dce9ef";
+  ctx.fillRect(netX - 3, floor - netHeight, 6, netHeight);
+
+  ctx.strokeStyle = "#718096";
+  for (let y = floor - netHeight; y < floor; y += 10) {
+    ctx.beginPath();
+    ctx.moveTo(netX - 13, y);
+    ctx.lineTo(netX + 13, y);
+    ctx.stroke();
+  }
+
+  for (let x = netX - 10; x <= netX + 10; x += 10) {
+    ctx.beginPath();
+    ctx.moveTo(x, floor - netHeight);
+    ctx.lineTo(x, floor);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 14px Arial";
+  ctx.fillText("BLUE EAGLES", 70, floor - 20);
+  ctx.fillText("RED TIGERS", 700, floor - 20);
+}
+
+function drawPlayer(p, name) {
+  // Shadow
+  ctx.fillStyle = "rgba(0,0,0,.22)";
+  ctx.beginPath();
+  ctx.ellipse(p.x, floor + 2, 26, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Legs
+  ctx.strokeStyle = "#172033";
+  ctx.lineWidth = 8;
+  ctx.lineCap = "round";
+
+  ctx.beginPath();
+  ctx.moveTo(p.x - 8, p.y - 24);
+  ctx.lineTo(p.x - 13, p.y);
+  ctx.moveTo(p.x + 8, p.y - 24);
+  ctx.lineTo(p.x + 13, p.y);
+  ctx.stroke();
+
+  // Body
+  ctx.fillStyle = p.color;
+  ctx.fillRect(p.x - 19, p.y - 58, 38, 37);
+
+  // Arms
+  ctx.strokeStyle = p.color;
+  ctx.lineWidth = 9;
+  ctx.beginPath();
+  ctx.moveTo(p.x - 14, p.y - 50);
+  ctx.lineTo(p.x - 30, p.y - 32);
+  ctx.moveTo(p.x + 14, p.y - 50);
+  ctx.lineTo(p.x + 30, p.y - 32);
+  ctx.stroke();
+
+  // Head
+  ctx.fillStyle = "#dba47e";
+  ctx.beginPath();
+  ctx.arc(p.x, p.y - 72, 16, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hair
+  ctx.fillStyle = "#30241f";
+  ctx.beginPath();
+  ctx.arc(p.x, p.y - 79, 15, Math.PI, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 13px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(name, p.x, p.y - 100);
+  ctx.textAlign = "left";
+}
+
+function drawBall() {
+  ctx.save();
+  ctx.translate(ball.x, ball.y);
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(0, 0, ball.r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#ff761b";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(0, 0, ball.r - 2, -0.7, 1.8);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#1677dd";
+  ctx.beginPath();
+  ctx.arc(0, 0, ball.r - 3, 1.9, 4.6);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function update(dt) {
+  if (!playing || gameOver) return;
+
+  if (!rally) {
+    ball.x = player.x + 15;
+    ball.y = player.y - 65;
+    return;
+  }
+
+  // Player movement
+  player.vx = 0;
+  if (keys["a"] || keys["arrowleft"]) player.vx = -260;
+  if (keys["d"] || keys["arrowright"]) player.vx = 260;
+
+  player.x += player.vx * dt;
+  player.x = Math.max(35, Math.min(netX - 38, player.x));
+
+  player.vy += 1100 * dt;
+  player.y += player.vy * dt;
+
+  if (player.y >= floor) {
+    player.y = floor;
+    player.vy = 0;
+    player.grounded = true;
+  }
+
+  // Computer opponent follows the ball
+  if (ball.x > netX - 80) {
+    opponent.x += Math.sign(ball.x - opponent.x) *
+      Math.min(Math.abs(ball.x - opponent.x), 190 * dt);
+  } else {
+    opponent.x += (690 - opponent.x) * Math.min(1, dt * 2);
+  }
+
+  opponent.x = Math.max(netX + 38, Math.min(W - 35, opponent.x));
+
+  if (ball.x > netX && ball.x < W - 35 &&
+      Math.abs(ball.x - opponent.x) < 65 &&
+      ball.y > opponent.y - 130 &&
+      ball.y < opponent.y - 20) {
+    if (opponent.grounded && ball.y < floor - 70) {
+      jump(opponent);
+    }
+
+    if (Math.random() < 0.16) {
+      hitBall("spike", opponent);
+    }
+  }
+
+  opponent.vy += 1100 * dt;
+  opponent.y += opponent.vy * dt;
+
+  if (opponent.y >= floor) {
+    opponent.y = floor;
+    opponent.vy = 0;
+    opponent.grounded = true;
+  }
+
+  // Ball physics
+  ball.vy += 850 * dt;
+  ball.x += ball.vx * dt;
+  ball.y += ball.vy * dt;
+
+  // Ceiling
+  if (ball.y < ball.r) {
+    ball.y = ball.r;
+    ball.vy = Math.abs(ball.vy) * 0.6;
+  }
+
+  // Net collision
+  if (
+    Math.abs(ball.x - netX) < ball.r + 4 &&
+    ball.y > floor - netHeight &&
+    ball.y < floor
+  ) {
+    ball.vx *= -0.65;
+    ball.x += ball.x < netX ? -5 : 5;
+  }
+
+  // Ball touches ground
+  if (ball.y + ball.r >= floor) {
+    const winner = ball.x < netX ? "red" : "blue";
+    point(winner);
+    return;
+  }
+
+  // Ball goes out of court
+  if (ball.x < 0 || ball.x > W) {
+    const winner = ball.x < 0 ? "red" : "blue";
+    point(winner);
+  }
+}
+
+function draw() {
+  drawCourt();
+  drawPlayer(player, "JARTSTHER");
+  drawPlayer(opponent, "CPU");
+  drawBall();
+
+  if (!playing) {
+    ctx.fillStyle = "rgba(0,0,0,.60)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.font = "bold 38px Arial";
+    ctx.fillText("JARTSTHER'S VOLLEYBALL", W / 2, 205);
+    ctx.font = "20px Arial";
+    ctx.fillText("Press START GAME to play!", W / 2, 250);
+    ctx.textAlign = "left";
+  }
+}
+
+function loop(time) {
+  const dt = Math.min((time - lastTime) / 1000 || 0, 0.035);
+  lastTime = time;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+document.addEventListener("keydown", e => {
+  const key = e.key.toLowerCase();
+  keys[key] = true;
+
+  if ([" ", "arrowleft", "arrowright"].includes(key)) {
+    e.preventDefault();
+  }
+
+  if (key === " " || key === "w") jump(player);
+  if (key === "j") hitBall("pass", player);
+  if (key === "k") hitBall("set", player);
+  if (key === "l") hitBall("spike", player);
+});
+
+document.addEventListener("keyup", e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+document.getElementById("start").onclick = startGame;
+document.getElementById("restart").onclick = startGame;
+document.getElementById("hit").onclick = () => hitBall("pass", player);
+document.getElementById("spike").onclick = () => hitBall("spike", player);
+document.getElementById("jump").onclick = () => jump(player);
+
+function holdButton(id, key) {
+  const btn = document.getElementById(id);
+  const down = e => {
+    e.preventDefault();
+    keys[key] = true;
+  };
+  const up = e => {
+    e.preventDefault();
+    keys[key] = false;
+  };
+
+  btn.addEventListener("pointerdown", down);
+  btn.addEventListener("pointerup", up);
+  btn.addEventListener("pointerleave", up);
+  btn.addEventListener("pointercancel", up);
+}
+
+holdButton("left", "a");
+holdButton("right", "d");
+
+resetBall();
+requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>
